@@ -1,0 +1,4304 @@
+import { QRCodeSVG } from "qrcode.react";
+import { useEffect, useState } from "react";
+import {
+  Search,
+  Users,
+  CalendarDays,
+  ArrowRight,
+  Sparkles,
+  CheckCircle2,
+  MapPin,
+  Clock,
+  UserPlus,
+  Award,
+  ShieldCheck,
+  Trophy,
+  ChevronRight,
+  LayoutDashboard,
+  Plus,
+  BarChart3,
+  ClipboardCheck,
+  X,
+  KeyRound,
+  Copy,
+  Check,
+  QrCode,
+  Bell,
+  Megaphone,
+  Crown,
+  UserCog,
+  LogOut,
+} from "lucide-react";
+
+const API = "http://127.0.0.1:8000";
+
+/* =========================================================
+   MAIN APP
+   ========================================================= */
+
+function App() {
+  const [currentUser, setCurrentUser] = useState(() => {
+    try {
+      const savedUser = localStorage.getItem(
+        "campusloop_user"
+      );
+
+      return savedUser
+        ? JSON.parse(savedUser)
+        : null;
+    } catch {
+      return null;
+    }
+  });
+
+  const [clubs, setClubs] = useState([]);
+  const [events, setEvents] = useState([]);
+  const [view, setView] = useState("home");
+  const [selectedClub, setSelectedClub] = useState(null);
+  const [selectedEvent, setSelectedEvent] = useState(null);
+  const [message, setMessage] = useState("");
+  const [attendanceEvent, setAttendanceEvent] = useState(null);
+  const [searchQuery, setSearchQuery] = useState("");
+  const [joinedClubs, setJoinedClubs] = useState([]);
+  const [registeredEvents, setRegisteredEvents] = useState([]);
+
+  const [notifications, setNotifications] = useState([]);
+  const [showNotifications, setShowNotifications] = useState(false);
+  const [clubAnnouncements, setClubAnnouncements] = useState([]);
+
+  const handleDemoLogin = async (role) => {
+    try {
+      const endpoint =
+        role === "club_admin"
+          ? `${API}/auth/demo/admin`
+          : `${API}/auth/demo/student`;
+
+      const res = await fetch(endpoint);
+      const data = await res.json();
+
+      if (!res.ok || data.error) {
+        setMessage(
+          data.error ||
+            "Could not start the demo session."
+        );
+        return;
+      }
+
+      localStorage.setItem(
+        "campusloop_user",
+        JSON.stringify(data.user)
+      );
+
+      setCurrentUser(data.user);
+
+      setView(
+        data.user.role === "club_admin"
+          ? "admin"
+          : "home"
+      );
+    } catch {
+      setMessage(
+        "Could not connect to the CampusLoop backend."
+      );
+    }
+  };
+
+  const handleLogout = () => {
+    localStorage.removeItem(
+      "campusloop_user"
+    );
+
+    setCurrentUser(null);
+    setView("home");
+    setSelectedClub(null);
+    setSelectedEvent(null);
+    setShowNotifications(false);
+  };
+
+  const loadData = () => {
+    fetch(`${API}/clubs`)
+      .then((res) => res.json())
+      .then(setClubs)
+      .catch(() => setMessage("Backend is not running"));
+
+    fetch(`${API}/events`)
+      .then((res) => res.json())
+      .then(setEvents)
+      .catch(() => setMessage("Backend is not running"));
+  };
+
+  const loadStudentState = () => {
+    fetch(`${API}/students/${userId}/profile`)
+      .then((res) => res.json())
+      .then((data) => {
+        if (data.clubs) {
+          setJoinedClubs(data.clubs.map((club) => club.id));
+        }
+
+        if (data.registered_events) {
+          setRegisteredEvents(
+            data.registered_events.map((event) => event.id)
+          );
+        }
+      })
+      .catch(() => {});
+  };
+
+  const loadNotifications = () => {
+    fetch(`${API}/students/1/notifications`)
+      .then((res) => {
+        if (!res.ok) {
+          throw new Error("Notification request failed");
+        }
+
+        return res.json();
+      })
+      .then((data) => {
+        setNotifications(data.notifications || data || []);
+      })
+      .catch(() => {});
+  };
+
+  const loadClubAnnouncements = async (clubId) => {
+    try {
+      const res = await fetch(
+        `${API}/clubs/${clubId}/announcements`
+      );
+
+      if (!res.ok) {
+        setClubAnnouncements([]);
+        return;
+      }
+
+      const data = await res.json();
+      setClubAnnouncements(data.announcements || []);
+    } catch {
+      setClubAnnouncements([]);
+    }
+  };
+
+  const openClub = (club) => {
+    setSelectedClub(club);
+    setClubAnnouncements([]);
+    setView("club");
+    loadClubAnnouncements(club.id);
+  };
+
+  useEffect(() => {
+    if (!currentUser) {
+      return;
+    }
+
+    loadData();
+
+    if (currentUser.role === "student") {
+      loadStudentState();
+      loadNotifications();
+    }
+
+    const interval =
+      currentUser.role === "student"
+        ? setInterval(
+            loadNotifications,
+            5000
+          )
+        : null;
+
+    return () => {
+      if (interval) {
+        clearInterval(interval);
+      }
+    };
+  }, [currentUser]);
+
+  const markNotificationRead = async (notificationId) => {
+    try {
+      await fetch(
+        `${API}/students/1/notifications/${notificationId}/read`,
+        {
+          method: "POST",
+        }
+      );
+
+      loadNotifications();
+    } catch {}
+  };
+
+  const markAllNotificationsRead = async () => {
+    try {
+      await fetch(
+        `${API}/students/1/notifications/read-all`,
+        {
+          method: "POST",
+        }
+      );
+
+      loadNotifications();
+    } catch {}
+  };
+
+  const unreadNotifications = notifications.filter(
+    (notification) =>
+      !notification.is_read && notification.is_read !== 1
+  ).length;
+
+  const joinClub = async (clubId) => {
+    if (joinedClubs.includes(clubId)) {
+      setMessage("You are already a member of this club.");
+      return;
+    }
+
+    try {
+      const res = await fetch(`${API}/clubs/${clubId}/join`, {
+        method: "POST",
+      });
+
+      const data = await res.json();
+
+      if (data.error) {
+        setMessage(data.error);
+        return;
+      }
+
+      setJoinedClubs((current) => [...current, clubId]);
+
+      setMessage(
+        data.message || "You joined the club!"
+      );
+
+      loadData();
+      loadNotifications();
+
+      setSelectedClub((current) =>
+        current && current.id === clubId
+          ? {
+              ...current,
+              members: current.members + 1,
+            }
+          : current
+      );
+    } catch {
+      setMessage("Could not connect to backend");
+    }
+  };
+
+  const registerEvent = async (eventId) => {
+    if (registeredEvents.includes(eventId)) {
+      setMessage("You are already registered for this event.");
+      return;
+    }
+
+    try {
+      const res = await fetch(
+        `${API}/events/${eventId}/register`,
+        {
+          method: "POST",
+        }
+      );
+
+      const data = await res.json();
+
+      if (data.error) {
+        setMessage(data.error);
+        return;
+      }
+
+      setRegisteredEvents((current) => [
+        ...current,
+        eventId,
+      ]);
+
+      setMessage(
+        data.message || "You registered for the event!"
+      );
+
+      loadData();
+      loadStudentState();
+      loadNotifications();
+
+      setSelectedEvent((current) =>
+        current && current.id === eventId
+          ? {
+              ...current,
+              registered: current.registered + 1,
+            }
+          : current
+      );
+    } catch {
+      setMessage("Could not connect to backend");
+    }
+  };
+
+  const normalizedSearch =
+    searchQuery.trim().toLowerCase();
+
+  const filteredClubs = clubs.filter((club) => {
+    if (!normalizedSearch) {
+      return true;
+    }
+
+    return [
+      club.name,
+      club.category,
+      club.description,
+    ]
+      .filter(Boolean)
+      .some((value) =>
+        value.toLowerCase().includes(normalizedSearch)
+      );
+  });
+
+  const filteredEvents = events.filter((event) => {
+    if (!normalizedSearch) {
+      return true;
+    }
+
+    return [
+      event.title,
+      event.description,
+      event.venue,
+      event.date,
+      event.time,
+    ]
+      .filter(Boolean)
+      .some((value) =>
+        value.toLowerCase().includes(normalizedSearch)
+      );
+  });
+
+  const hasSearchResults =
+    filteredClubs.length > 0 ||
+    filteredEvents.length > 0;
+
+  return (
+    <div className="app">
+      <header className="navbar">
+        <div
+          className="logo"
+          onClick={() => {
+            setView("home");
+            setMessage("");
+            setSearchQuery("");
+          }}
+        >
+          <div className="logoIcon">C</div>
+          <span>CampusLoop</span>
+        </div>
+
+        <nav>
+          <button
+            className={
+              view === "home" ? "activeNav" : ""
+            }
+            onClick={() => setView("home")}
+          >
+            Discover
+          </button>
+
+          <button
+            className={
+              view === "events" ? "activeNav" : ""
+            }
+            onClick={() => setView("events")}
+          >
+            Events
+          </button>
+
+          <button
+            className={
+              view === "profile" ? "activeNav" : ""
+            }
+            onClick={() => setView("profile")}
+          >
+            My Campus
+          </button>
+
+          <button
+            className={
+              view === "admin" ? "activeNav" : ""
+            }
+            onClick={() => {
+              if (currentUser.role === "club_admin") {
+                setView("admin");
+              }
+            }}
+          >
+            <LayoutDashboard size={15} />
+            Club Admin
+          </button>
+        </nav>
+
+        <div className="navbarRight">
+          <div
+            className="notificationWrapper"
+            style={{ position: "relative" }}
+          >
+            <button
+              className="notificationButton"
+              onClick={() =>
+                setShowNotifications(
+                  (current) => !current
+                )
+              }
+              title="Notifications"
+            >
+              <Bell size={20} />
+
+              {unreadNotifications > 0 && (
+                <span className="notificationBadge">
+                  {unreadNotifications > 9
+                    ? "9+"
+                    : unreadNotifications}
+                </span>
+              )}
+            </button>
+
+            {showNotifications && (
+              <div className="notificationPanel">
+                <div className="notificationHeader">
+                  <div>
+                    <strong>Notifications</strong>
+
+                    <span>
+                      {unreadNotifications > 0
+                        ? `${unreadNotifications} unread`
+                        : "All caught up"}
+                    </span>
+                  </div>
+
+                  {unreadNotifications > 0 && (
+                    <button
+                      className="notificationMarkAll"
+                      onClick={markAllNotificationsRead}
+                    >
+                      Mark all read
+                    </button>
+                  )}
+                </div>
+
+                <div className="notificationList">
+                  {notifications.length === 0 ? (
+                    <div className="notificationEmpty">
+                      <Bell size={28} />
+
+                      <strong>
+                        No notifications
+                      </strong>
+
+                      <span>
+                        Your CampusLoop activity will
+                        appear here.
+                      </span>
+                    </div>
+                  ) : (
+                    notifications.map(
+                      (notification) => {
+                        const isUnread =
+                          !notification.is_read &&
+                          notification.is_read !== 1;
+
+                        const notificationType =
+                          notification.type ||
+                          notification.notification_type ||
+                          "general";
+
+                        return (
+                          <button
+                            key={notification.id}
+                            className={
+                              isUnread
+                                ? "notificationItem unread"
+                                : "notificationItem"
+                            }
+                            onClick={() =>
+                              markNotificationRead(
+                                notification.id
+                              )
+                            }
+                          >
+                            <div className="notificationIcon">
+                              {notificationType ===
+                              "attendance" ? (
+                                <ShieldCheck size={18} />
+                              ) : notificationType ===
+                                "announcement" ? (
+                                <Megaphone size={18} />
+                              ) : notificationType ===
+                                "club" ? (
+                                <Users size={18} />
+                              ) : (
+                                <CalendarDays size={18} />
+                              )}
+                            </div>
+
+                            <div className="notificationContent">
+                              <strong>
+                                {notification.title}
+                              </strong>
+
+                              <span>
+                                {notification.message}
+                              </span>
+                            </div>
+
+                            {isUnread && (
+                              <div className="notificationDot" />
+                            )}
+                          </button>
+                        );
+                      }
+                    )
+                  )}
+                </div>
+              </div>
+            )}
+          </div>
+
+          <div className="user">
+            <div className="avatar">R</div>
+            <span>
+                      {currentUser.name}
+                    </span>
+
+                    <button
+                      className="iconButton"
+                      title="Log out"
+                      onClick={handleLogout}
+                    >
+                      <LogOut size={17} />
+                    </button>
+          </div>
+        </div>
+      </header>
+
+      {message && (
+        <div className="toast">
+          <CheckCircle2 size={18} />
+          {message}
+        </div>
+      )}
+
+      {/* =====================================================
+          HOME
+          ===================================================== */}
+
+      {view === "home" && (
+        <main>
+          <section className="hero">
+            <div>
+              <div className="eyebrow">
+                <Sparkles size={16} />
+                YOUR CAMPUS. YOUR COMMUNITY.
+              </div>
+
+              <h1>
+                Discover.
+                <br />
+                Participate.
+                <br />
+                <span>Belong.</span>
+              </h1>
+
+              <p>
+                Find clubs, events and communities that
+                match your interests and build a verified
+                record of your campus journey.
+              </p>
+
+              <div className="searchBox">
+                <Search size={20} />
+
+                <input
+                  value={searchQuery}
+                  onChange={(e) =>
+                    setSearchQuery(e.target.value)
+                  }
+                  placeholder="Search clubs, events, communities..."
+                />
+
+                {searchQuery && (
+                  <button
+                    className="iconButton"
+                    onClick={() =>
+                      setSearchQuery("")
+                    }
+                    title="Clear search"
+                  >
+                    <X size={17} />
+                  </button>
+                )}
+              </div>
+            </div>
+
+            <div className="heroCard">
+              <div className="floatingIcon">✦</div>
+
+              <h3>Your campus journey</h3>
+
+              <div className="journey">
+                <div>
+                  <strong>3</strong>
+                  <span>Clubs</span>
+                </div>
+
+                <div>
+                  <strong>7</strong>
+                  <span>Events</span>
+                </div>
+
+                <div>
+                  <strong>4</strong>
+                  <span>Verified</span>
+                </div>
+              </div>
+
+              <div className="verified">
+                <CheckCircle2 size={18} />
+                Verified participation
+              </div>
+            </div>
+          </section>
+
+          {searchQuery && (
+            <section className="section">
+              <div className="sectionHeader">
+                <div>
+                  <div className="eyebrow">
+                    SEARCH RESULTS
+                  </div>
+
+                  <h2>
+                    Results for "{searchQuery}"
+                  </h2>
+
+                  <p>
+                    {filteredClubs.length} club
+                    {filteredClubs.length !== 1
+                      ? "s"
+                      : ""}{" "}
+                    · {filteredEvents.length} event
+                    {filteredEvents.length !== 1
+                      ? "s"
+                      : ""}
+                  </p>
+                </div>
+              </div>
+            </section>
+          )}
+
+          {!hasSearchResults && searchQuery && (
+            <section className="section">
+              <div className="emptyState">
+                <Search size={32} />
+
+                <h3>No results found</h3>
+
+                <p>
+                  Try searching for AI, coding,
+                  robotics, hackathon or workshop.
+                </p>
+              </div>
+            </section>
+          )}
+
+          {filteredClubs.length > 0 && (
+            <section className="section">
+              <div className="sectionHeader">
+                <div>
+                  <div className="eyebrow">
+                    {searchQuery
+                      ? "MATCHING CLUBS"
+                      : "EXPLORE"}
+                  </div>
+
+                  <h2>
+                    {searchQuery
+                      ? "Communities"
+                      : "Find your community"}
+                  </h2>
+                </div>
+              </div>
+
+              <div className="clubGrid">
+                {filteredClubs.map((club) => (
+                  <div
+                    className="clubCard"
+                    key={club.id}
+                  >
+                    <div className="clubImage">
+                      {club.name === "AI Nexus"
+                        ? "🤖"
+                        : club.name === "Coding Club"
+                        ? "💻"
+                        : "⚙️"}
+                    </div>
+
+                    <div className="clubContent">
+                      <span className="category">
+                        {club.category}
+                      </span>
+
+                      <h3>{club.name}</h3>
+
+                      <p>{club.description}</p>
+
+                      <div className="clubBottom">
+                        <div className="members">
+                          <Users size={16} />
+                          {club.members} members
+                        </div>
+
+                        <button
+                          className="iconButton"
+                          onClick={() =>
+                            openClub(club)
+                          }
+                        >
+                          <ArrowRight size={18} />
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </section>
+          )}
+
+          {!searchQuery && (
+            <Recommendations
+              clubs={clubs}
+              events={events}
+              joinedClubs={joinedClubs}
+              registeredEvents={registeredEvents}
+              onOpenClub={openClub}
+              onOpenEvent={(event) => {
+                setSelectedEvent(event);
+                setView("event");
+              }}
+            />
+          )}
+
+          {filteredEvents.length > 0 && (
+            <section className="section eventsSection">
+              <div className="sectionHeader">
+                <div>
+                  <div className="eyebrow">
+                    {searchQuery
+                      ? "MATCHING EVENTS"
+                      : "UPCOMING"}
+                  </div>
+
+                  <h2>
+                    {searchQuery
+                      ? "Campus events"
+                      : "Events happening on campus"}
+                  </h2>
+                </div>
+
+                {!searchQuery && (
+                  <button
+                    className="textButton"
+                    onClick={() =>
+                      setView("events")
+                    }
+                  >
+                    View all
+                    <ArrowRight size={16} />
+                  </button>
+                )}
+              </div>
+
+              <div className="eventList">
+                {filteredEvents.map((event) => (
+                  <div
+                    className="eventCard"
+                    key={event.id}
+                  >
+                    <div className="eventDate">
+                      <CalendarDays size={22} />
+
+                      <strong>
+                        {event.date?.split(" ")[0]}
+                      </strong>
+
+                      <span>
+                        {event.date?.split(" ")[1]}
+                      </span>
+                    </div>
+
+                    <div className="eventInfo">
+                      <span className="category">
+                        CAMPUS EVENT
+                      </span>
+
+                      <h3>{event.title}</h3>
+
+                      <p>{event.description}</p>
+
+                      <div className="eventMeta">
+                        <span>
+                          <MapPin size={15} />
+                          {event.venue}
+                        </span>
+
+                        <span>
+                          <Clock size={15} />
+                          {event.time}
+                        </span>
+                      </div>
+                    </div>
+
+                    <button
+                      className="primaryButton"
+                      onClick={() => {
+                        setSelectedEvent(event);
+                        setView("event");
+                      }}
+                    >
+                      View Event
+                    </button>
+                  </div>
+                ))}
+              </div>
+            </section>
+          )}
+        </main>
+      )}
+
+      {/* =====================================================
+          CLUB DETAIL
+          ===================================================== */}
+
+      {view === "club" && selectedClub && (
+        <main className="detailPage">
+          <button
+            className="backButton"
+            onClick={() => setView("home")}
+          >
+            ← Back to Discover
+          </button>
+
+          <section className="clubHero">
+            <div className="bigClubIcon">
+              {selectedClub.name === "AI Nexus"
+                ? "🤖"
+                : selectedClub.name === "Coding Club"
+                ? "💻"
+                : "⚙️"}
+            </div>
+
+            <div>
+              <span className="category">
+                {selectedClub.category}
+              </span>
+
+              <h1>{selectedClub.name}</h1>
+
+              <p>{selectedClub.description}</p>
+
+              <div className="detailStats">
+                <span>
+                  <Users size={17} />
+                  {selectedClub.members} members
+                </span>
+
+                <span>
+                  <CalendarDays size={17} />
+                  Active community
+                </span>
+              </div>
+            </div>
+
+            <button
+              className={
+                joinedClubs.includes(
+                  selectedClub.id
+                )
+                  ? "secondaryButton large"
+                  : "primaryButton large"
+              }
+              onClick={() =>
+                joinClub(selectedClub.id)
+              }
+              disabled={joinedClubs.includes(
+                selectedClub.id
+              )}
+            >
+              {joinedClubs.includes(
+                selectedClub.id
+              ) ? (
+                <>
+                  <CheckCircle2 size={18} />
+                  Joined
+                </>
+              ) : (
+                <>
+                  <UserPlus size={18} />
+                  Join Club
+                </>
+              )}
+            </button>
+          </section>
+
+          <section className="clubDetails">
+            <div className="detailPanel">
+              <div className="eyebrow">
+                ABOUT THE COMMUNITY
+              </div>
+
+              <h2>What happens here?</h2>
+
+              <p>
+                AI Nexus brings together students
+                interested in AI, machine learning,
+                generative AI and emerging technologies.
+              </p>
+
+              <div className="activityTags">
+                <span>AI Research</span>
+                <span>Hackathons</span>
+                <span>Workshops</span>
+                <span>GenAI</span>
+                <span>Projects</span>
+              </div>
+            </div>
+
+            <div className="detailPanel">
+              <div className="panelHeading">
+                <div>
+                  <div className="eyebrow">
+                    ANNOUNCEMENTS
+                  </div>
+
+                  <h2>Latest updates</h2>
+                </div>
+
+                <Megaphone size={22} />
+              </div>
+
+              {clubAnnouncements.length === 0 ? (
+                <div className="emptyState">
+                  <Megaphone size={30} />
+
+                  <p>
+                    No announcements from this club
+                    yet.
+                  </p>
+                </div>
+              ) : (
+                <div
+                  style={{
+                    display: "flex",
+                    flexDirection: "column",
+                    gap: "12px",
+                  }}
+                >
+                  {clubAnnouncements.map(
+                    (announcement) => (
+                      <div
+                        key={announcement.id}
+                        style={{
+                          padding: "16px",
+                          borderRadius: "14px",
+                          border:
+                            "1px solid #e5e7eb",
+                          background: "#fafafa",
+                        }}
+                      >
+                        <div
+                          style={{
+                            display: "flex",
+                            gap: "10px",
+                            alignItems:
+                              "flex-start",
+                          }}
+                        >
+                          <div
+                            style={{
+                              minWidth: "34px",
+                              width: "34px",
+                              height: "34px",
+                              borderRadius: "10px",
+                              display: "flex",
+                              alignItems:
+                                "center",
+                              justifyContent:
+                                "center",
+                              background:
+                                "#eef2ff",
+                            }}
+                          >
+                            <Megaphone size={17} />
+                          </div>
+
+                          <div>
+                            <strong
+                              style={{
+                                display: "block",
+                                marginBottom:
+                                  "5px",
+                              }}
+                            >
+                              {announcement.title}
+                            </strong>
+
+                            <p
+                              style={{
+                                margin: 0,
+                                lineHeight: 1.55,
+                              }}
+                            >
+                              {announcement.message}
+                            </p>
+                          </div>
+                        </div>
+                      </div>
+                    )
+                  )}
+                </div>
+              )}
+            </div>
+          </section>
+
+          <section className="detailPanel">
+            <div className="panelHeading">
+              <div>
+                <div className="eyebrow">
+                  UPCOMING EVENTS
+                </div>
+
+                <h2>
+                  Events from this community
+                </h2>
+              </div>
+
+              <CalendarDays size={22} />
+            </div>
+
+            {events.filter(
+              (e) =>
+                e.club_id === selectedClub.id
+            ).length === 0 ? (
+              <div className="emptyState">
+                <CalendarDays size={30} />
+                <p>No upcoming events.</p>
+              </div>
+            ) : (
+              events
+                .filter(
+                  (e) =>
+                    e.club_id ===
+                    selectedClub.id
+                )
+                .map((event) => (
+                  <div
+                    className="miniEvent"
+                    key={event.id}
+                    onClick={() => {
+                      setSelectedEvent(event);
+                      setView("event");
+                    }}
+                  >
+                    <div>
+                      <strong>
+                        {event.title}
+                      </strong>
+
+                      <span>
+                        {event.date} ·{" "}
+                        {event.venue}
+                      </span>
+                    </div>
+
+                    <ArrowRight size={18} />
+                  </div>
+                ))
+            )}
+          </section>
+        </main>
+      )}
+
+      {/* =====================================================
+          EVENT DETAIL
+          ===================================================== */}
+
+      {view === "event" && selectedEvent && (
+        <main className="detailPage">
+          <button
+            className="backButton"
+            onClick={() => setView("events")}
+          >
+            ← Back to Events
+          </button>
+
+          <section className="eventDetail">
+            <div className="eventDetailTop">
+              <span className="category">
+                CAMPUS EVENT
+              </span>
+
+              <h1>{selectedEvent.title}</h1>
+
+              <p>
+                {selectedEvent.description}
+              </p>
+            </div>
+
+            <div className="eventInfoGrid">
+              <div>
+                <CalendarDays />
+                <span>Date</span>
+                <strong>
+                  {selectedEvent.date}
+                </strong>
+              </div>
+
+              <div>
+                <Clock />
+                <span>Time</span>
+                <strong>
+                  {selectedEvent.time}
+                </strong>
+              </div>
+
+              <div>
+                <MapPin />
+                <span>Venue</span>
+                <strong>
+                  {selectedEvent.venue}
+                </strong>
+              </div>
+
+              <div>
+                <Users />
+                <span>Registered</span>
+                <strong>
+                  {selectedEvent.registered}/
+                  {selectedEvent.capacity}
+                </strong>
+              </div>
+            </div>
+
+            <div className="eventActions">
+              <button
+                className={
+                  registeredEvents.includes(
+                    selectedEvent.id
+                  )
+                    ? "secondaryButton large"
+                    : "primaryButton large"
+                }
+                onClick={() =>
+                  registerEvent(
+                    selectedEvent.id
+                  )
+                }
+                disabled={registeredEvents.includes(
+                  selectedEvent.id
+                )}
+              >
+                {registeredEvents.includes(
+                  selectedEvent.id
+                ) ? (
+                  <>
+                    <CheckCircle2 size={18} />
+                    Registered
+                  </>
+                ) : (
+                  <>
+                    <CalendarDays size={18} />
+                    Register for Event
+                  </>
+                )}
+              </button>
+
+              <button
+                className="secondaryButton large"
+                onClick={() =>
+                  setAttendanceEvent(
+                    selectedEvent
+                  )
+                }
+              >
+                <CheckCircle2 size={18} />
+                Verify Attendance
+              </button>
+            </div>
+          </section>
+        </main>
+      )}
+
+      {/* =====================================================
+          EVENTS
+          ===================================================== */}
+
+      {view === "events" && (
+        <main className="detailPage">
+          <div className="pageHeading">
+            <div className="eyebrow">
+              CAMPUS CALENDAR
+            </div>
+
+            <h1>Upcoming Events</h1>
+
+            <p>
+              Discover workshops, hackathons and
+              activities happening across campus.
+            </p>
+          </div>
+
+          <div className="eventList">
+            {events.map((event) => (
+              <div
+                className="eventCard"
+                key={event.id}
+              >
+                <div className="eventDate">
+                  <CalendarDays size={22} />
+
+                  <strong>
+                    {event.date?.split(" ")[0]}
+                  </strong>
+
+                  <span>
+                    {event.date?.split(" ")[1]}
+                  </span>
+                </div>
+
+                <div className="eventInfo">
+                  <span className="category">
+                    CAMPUS EVENT
+                  </span>
+
+                  <h3>{event.title}</h3>
+
+                  <p>{event.description}</p>
+
+                  <div className="eventMeta">
+                    <span>
+                      <MapPin size={15} />
+                      {event.venue}
+                    </span>
+
+                    <span>
+                      <Clock size={15} />
+                      {event.time}
+                    </span>
+                  </div>
+                </div>
+
+                <button
+                  className="primaryButton"
+                  onClick={() => {
+                    setSelectedEvent(event);
+                    setView("event");
+                  }}
+                >
+                  View Event
+                </button>
+              </div>
+            ))}
+          </div>
+        </main>
+      )}
+
+      {view === "profile" && <Profile userId={currentUser.id} />}
+
+      {view === "admin" && <AdminDashboard />}
+
+      {attendanceEvent && (
+        <AttendanceModal
+          event={attendanceEvent}
+          onClose={() =>
+            setAttendanceEvent(null)
+          }
+          onSuccess={() => {
+            setAttendanceEvent(null);
+            setMessage(
+              "Attendance verified successfully!"
+            );
+            loadNotifications();
+            loadStudentState();
+          }}
+        />
+      )}
+    </div>
+  );
+}
+
+/* =========================================================
+   RECOMMENDATIONS
+   ========================================================= */
+
+function LoginScreen({
+  onLogin,
+}) {
+  const [loading, setLoading] =
+    useState("");
+
+  const login = async (role) => {
+    setLoading(role);
+
+    try {
+      await onLogin(role);
+    } finally {
+      setLoading("");
+    }
+  };
+
+  return (
+    <main
+      style={{
+        minHeight: "100vh",
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center",
+        padding: "24px",
+        background:
+          "linear-gradient(135deg, #f8fafc, #eef2ff)",
+      }}
+    >
+      <div
+        style={{
+          width: "100%",
+          maxWidth: "900px",
+          display: "grid",
+          gridTemplateColumns:
+            "minmax(0, 1.05fr) minmax(320px, .95fr)",
+          gap: "24px",
+          alignItems: "stretch",
+        }}
+      >
+        <div
+          className="detailPanel"
+          style={{
+            margin: 0,
+            padding: "42px",
+            display: "flex",
+            flexDirection: "column",
+            justifyContent: "center",
+          }}
+        >
+          <div className="eyebrow">
+            CAMPUS PARTICIPATION PLATFORM
+          </div>
+
+          <h1
+            style={{
+              fontSize: "clamp(42px, 6vw, 68px)",
+              margin: "10px 0",
+              lineHeight: 1,
+            }}
+          >
+            CampusLoop
+          </h1>
+
+          <p
+            style={{
+              fontSize: "18px",
+              lineHeight: 1.7,
+              color: "#64748b",
+              maxWidth: "520px",
+            }}
+          >
+            Discover communities, participate
+            in events and build your verified
+            campus journey.
+          </p>
+
+          <div
+            style={{
+              display: "flex",
+              flexDirection: "column",
+              gap: "12px",
+              marginTop: "28px",
+            }}
+          >
+            <div
+              style={{
+                display: "flex",
+                alignItems: "center",
+                gap: "10px",
+              }}
+            >
+              <CheckCircle2 size={18} />
+              Discover campus communities
+            </div>
+
+            <div
+              style={{
+                display: "flex",
+                alignItems: "center",
+                gap: "10px",
+              }}
+            >
+              <CheckCircle2 size={18} />
+              Register and participate in events
+            </div>
+
+            <div
+              style={{
+                display: "flex",
+                alignItems: "center",
+                gap: "10px",
+              }}
+            >
+              <ShieldCheck size={18} />
+              Maintain verified participation
+            </div>
+          </div>
+        </div>
+
+        <div
+          className="detailPanel"
+          style={{
+            margin: 0,
+            padding: "32px",
+          }}
+        >
+          <div className="eyebrow">
+            DEMO ACCESS
+          </div>
+
+          <h2
+            style={{
+              margin: "8px 0",
+            }}
+          >
+            Enter CampusLoop
+          </h2>
+
+          <p
+            style={{
+              color: "#64748b",
+              lineHeight: 1.6,
+              marginBottom: "24px",
+            }}
+          >
+            Choose the experience you want
+            to demonstrate.
+          </p>
+
+          <button
+            className="primaryButton"
+            style={{
+              width: "100%",
+              justifyContent: "center",
+              padding: "14px",
+              marginBottom: "12px",
+            }}
+            disabled={!!loading}
+            onClick={() =>
+              login("student")
+            }
+          >
+            <Users size={18} />
+
+            {loading === "student"
+              ? "Opening Student Portal..."
+              : "Continue as Student"}
+          </button>
+
+          <button
+            className="secondaryButton"
+            style={{
+              width: "100%",
+              justifyContent: "center",
+              padding: "14px",
+            }}
+            disabled={!!loading}
+            onClick={() =>
+              login("club_admin")
+            }
+          >
+            <LayoutDashboard size={18} />
+
+            {loading === "club_admin"
+              ? "Opening Club Admin..."
+              : "Continue as Club Admin"}
+          </button>
+
+          <div
+            style={{
+              marginTop: "24px",
+              padding: "14px",
+              borderRadius: "12px",
+              background: "#f8fafc",
+              fontSize: "12px",
+              color: "#64748b",
+              lineHeight: 1.5,
+            }}
+          >
+            Demo mode: authentication is
+            intentionally simplified for the
+            hackathon prototype.
+          </div>
+        </div>
+      </div>
+    </main>
+  );
+}
+
+
+function Recommendations({
+  clubs,
+  events,
+  joinedClubs,
+  registeredEvents,
+  onOpenClub,
+  onOpenEvent,
+}) {
+  const joinedClubObjects = clubs.filter((club) =>
+    joinedClubs.includes(club.id)
+  );
+
+  const joinedCategories = [
+    ...new Set(
+      joinedClubObjects
+        .map((club) => club.category)
+        .filter(Boolean)
+    ),
+  ];
+
+  const recommendedClubs = clubs
+    .filter(
+      (club) =>
+        !joinedClubs.includes(club.id) &&
+        joinedCategories.includes(
+          club.category
+        )
+    )
+    .slice(0, 3);
+
+  const matchingEvents = events.filter((event) => {
+    if (registeredEvents.includes(event.id)) {
+      return false;
+    }
+
+    const eventClub = clubs.find(
+      (club) => club.id === event.club_id
+    );
+
+    return (
+      eventClub &&
+      joinedCategories.includes(
+        eventClub.category
+      )
+    );
+  });
+
+  const fallbackEvents = events.filter(
+    (event) =>
+      !registeredEvents.includes(event.id)
+  );
+
+  const recommendedEvents = [
+    ...matchingEvents,
+    ...fallbackEvents.filter(
+      (event) =>
+        !matchingEvents.some(
+          (matchingEvent) =>
+            matchingEvent.id === event.id
+        )
+    ),
+  ].slice(0, 3);
+
+  const recommendations = [
+    ...recommendedClubs.map((club) => ({
+      type: "club",
+      id: `club-${club.id}`,
+      data: club,
+      reason: `Because you're interested in ${club.category}`,
+    })),
+
+    ...recommendedEvents.map((event) => ({
+      type: "event",
+      id: `event-${event.id}`,
+      data: event,
+      reason: "Matches your campus interests",
+    })),
+  ].slice(0, 4);
+
+  if (recommendations.length === 0) {
+    return null;
+  }
+
+  return (
+    <section className="section">
+      <div className="sectionHeader">
+        <div>
+          <div className="eyebrow">
+            <Sparkles size={14} />
+            RECOMMENDED FOR YOU
+          </div>
+
+          <h2>Picked for your interests</h2>
+
+          <p>
+            Based on the clubs and activities you're
+            already part of.
+          </p>
+        </div>
+      </div>
+
+      <div className="clubGrid">
+        {recommendations.map((item) => {
+          if (item.type === "club") {
+            const club = item.data;
+
+            return (
+              <div
+                className="clubCard"
+                key={item.id}
+              >
+                <div className="clubImage">
+                  {club.name === "AI Nexus"
+                    ? "🤖"
+                    : club.name ===
+                      "Coding Club"
+                    ? "💻"
+                    : "⚙️"}
+                </div>
+
+                <div className="clubContent">
+                  <span className="category">
+                    RECOMMENDED CLUB
+                  </span>
+
+                  <h3>{club.name}</h3>
+
+                  <p>{club.description}</p>
+
+                  <div
+                    style={{
+                      marginTop: "10px",
+                      fontSize: "12px",
+                      color: "#64748b",
+                    }}
+                  >
+                    ✦ {item.reason}
+                  </div>
+
+                  <div className="clubBottom">
+                    <div className="members">
+                      <Users size={16} />
+                      {club.members} members
+                    </div>
+
+                    <button
+                      className="iconButton"
+                      onClick={() =>
+                        onOpenClub(club)
+                      }
+                    >
+                      <ArrowRight size={18} />
+                    </button>
+                  </div>
+                </div>
+              </div>
+            );
+          }
+
+          const event = item.data;
+
+          const eventClub = clubs.find(
+            (club) =>
+              club.id === event.club_id
+          );
+
+          return (
+            <div
+              className="clubCard"
+              key={item.id}
+            >
+              <div className="clubImage">
+                📅
+              </div>
+
+              <div className="clubContent">
+                <span className="category">
+                  RECOMMENDED EVENT
+                </span>
+
+                <h3>{event.title}</h3>
+
+                <p>{event.description}</p>
+
+                <div
+                  style={{
+                    marginTop: "10px",
+                    display: "flex",
+                    flexDirection:
+                      "column",
+                    gap: "5px",
+                    fontSize: "12px",
+                    color: "#64748b",
+                  }}
+                >
+                  <span>
+                    ✦{" "}
+                    {eventClub?.name ||
+                      "Campus event"}
+                  </span>
+
+                  <span>
+                    <CalendarDays
+                      size={13}
+                      style={{
+                        verticalAlign:
+                          "middle",
+                        marginRight:
+                          "4px",
+                      }}
+                    />
+
+                    {event.date} ·{" "}
+                    {event.time}
+                  </span>
+                </div>
+
+                <div className="clubBottom">
+                  <div className="members">
+                    <MapPin size={16} />
+                    {event.venue}
+                  </div>
+
+                  <button
+                    className="iconButton"
+                    onClick={() =>
+                      onOpenEvent(event)
+                    }
+                  >
+                    <ArrowRight size={18} />
+                  </button>
+                </div>
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    </section>
+  );
+}
+
+/* =========================================================
+   STUDENT PARTICIPATION PROFILE
+   ========================================================= */
+
+function Profile({ userId = 1 }) {
+  const [profile, setProfile] = useState(null);
+  const [loading, setLoading] = useState(true);
+
+  const loadProfile = () => {
+    setLoading(true);
+
+    fetch(`${API}/students/${userId}/profile`)
+      .then((res) => res.json())
+      .then((data) => {
+        setProfile(data);
+        setLoading(false);
+      })
+      .catch(() => setLoading(false));
+  };
+
+  useEffect(() => {
+    loadProfile();
+
+    const interval = setInterval(
+      loadProfile,
+      5000
+    );
+
+    return () => clearInterval(interval);
+  }, []);
+
+  if (loading && !profile) {
+    return (
+      <main className="detailPage">
+        <div className="loadingState">
+          Loading your campus participation
+          profile...
+        </div>
+      </main>
+    );
+  }
+
+  if (!profile) {
+    return (
+      <main className="detailPage">
+        <div className="emptyState">
+          <ShieldCheck size={32} />
+
+          <h3>
+            Could not load your profile
+          </h3>
+
+          <p>
+            Make sure the CampusLoop backend is
+            running.
+          </p>
+
+          <button
+            className="primaryButton"
+            onClick={loadProfile}
+          >
+            Try Again
+          </button>
+        </div>
+      </main>
+    );
+  }
+
+  const clubs = profile.clubs || [];
+  const registeredEvents =
+    profile.registered_events || [];
+  const verifiedEvents =
+    profile.verified_events || [];
+  const contributions =
+    profile.contributions || [];
+  const stats = profile.stats || {};
+
+  const verifiedEventIds = new Set(
+    verifiedEvents.map(
+      (event) => event.id
+    )
+  );
+
+  const verificationRate =
+    stats.events_registered
+      ? Math.round(
+          ((stats.events_attended || 0) /
+            stats.events_registered) *
+            100
+        )
+      : 0;
+
+  const shareProfile = async () => {
+    const profileUrl =
+      `${window.location.origin}/?profile=1`;
+
+    try {
+      if (navigator.share) {
+        await navigator.share({
+          title: `${profile.student.name}'s CampusLoop Profile`,
+          text:
+            "View my verified campus participation profile.",
+          url: profileUrl,
+        });
+      } else if (
+        navigator.clipboard
+      ) {
+        await navigator.clipboard.writeText(
+          profileUrl
+        );
+
+        setMessage("Profile link copied!");
+      } else {
+        setMessage(
+          "Profile link: " + profileUrl
+        );
+      }
+    } catch {
+      // User cancelled the share dialog.
+    }
+  };
+
+  return (
+    <main className="detailPage passportPage">
+      <section className="passportHero">
+        <div className="passportIdentity">
+          <div className="profileAvatar">
+            R
+          </div>
+
+          <div>
+            <div className="eyebrow">
+              CAMPUS PARTICIPATION PROFILE
+            </div>
+
+            <h1>
+              {profile.student.name}
+            </h1>
+
+            <p>
+              {profile.student.email}
+            </p>
+
+            <div className="studentStatus">
+              <ShieldCheck size={16} />
+              Campus participation profile
+              active
+            </div>
+          </div>
+        </div>
+
+        <div className="passportActions">
+          <button
+            className="secondaryButton"
+            onClick={shareProfile}
+          >
+            Share Profile
+          </button>
+        </div>
+      </section>
+
+      <section className="verificationStrip">
+        <div className="verificationIcon">
+          <ShieldCheck size={28} />
+        </div>
+
+        <div>
+          <strong>
+            Your campus journey in one place
+          </strong>
+
+          <span>
+            Discover communities, participate in
+            events and keep a record of your
+            verified campus involvement.
+          </span>
+        </div>
+
+        <CheckCircle2 size={24} />
+      </section>
+
+      <section className="profileStats passportStats">
+        <div>
+          <Users size={22} />
+
+          <strong>
+            {stats.clubs_joined || 0}
+          </strong>
+
+          <span>Communities</span>
+        </div>
+
+        <div>
+          <CalendarDays size={22} />
+
+          <strong>
+            {stats.events_registered || 0}
+          </strong>
+
+          <span>Registered</span>
+        </div>
+
+        <div>
+          <ShieldCheck size={22} />
+
+          <strong>
+            {stats.events_attended || 0}
+          </strong>
+
+          <span>Verified</span>
+        </div>
+
+        <div>
+          <Award size={22} />
+
+          <strong>
+            {stats.contributions || 0}
+          </strong>
+
+          <span>Contributions</span>
+        </div>
+      </section>
+
+      <section
+        className="detailPanel"
+        style={{
+          marginBottom: "24px",
+          padding: "22px",
+        }}
+      >
+        <div
+          style={{
+            display: "flex",
+            alignItems: "center",
+            justifyContent:
+              "space-between",
+            gap: "20px",
+            flexWrap: "wrap",
+          }}
+        >
+          <div>
+            <div className="eyebrow">
+              <ShieldCheck size={14} />
+              VERIFIED CAMPUS PASSPORT
+            </div>
+
+            <h2
+              style={{
+                margin: "6px 0",
+              }}
+            >
+              Your participation, verified
+            </h2>
+
+            <p
+              style={{
+                margin: 0,
+              }}
+            >
+              Only verified event attendance
+              contributes to your participation
+              record.
+            </p>
+          </div>
+
+          <div
+            style={{
+              minWidth: "150px",
+              textAlign: "center",
+              padding: "16px 20px",
+              borderRadius: "16px",
+              background: "#f8fafc",
+              border:
+                "1px solid #e5e7eb",
+            }}
+          >
+            <strong
+              style={{
+                display: "block",
+                fontSize: "30px",
+              }}
+            >
+              {verificationRate}%
+            </strong>
+
+            <span
+              style={{
+                fontSize: "12px",
+                color: "#64748b",
+              }}
+            >
+              Verification rate
+            </span>
+          </div>
+        </div>
+      </section>
+
+      <section className="passportGrid">
+        <div className="detailPanel passportPanel">
+          <div className="panelHeading">
+            <div>
+              <div className="eyebrow">
+                COMMUNITIES
+              </div>
+
+              <h2>Your communities</h2>
+            </div>
+
+            <Users size={22} />
+          </div>
+
+          {clubs.length === 0 ? (
+            <div className="emptyState">
+              <Users size={30} />
+
+              <p>
+                Join your first campus
+                community.
+              </p>
+            </div>
+          ) : (
+            clubs.map((club) => (
+              <div
+                className="passportClub"
+                key={club.id}
+              >
+                <div className="passportClubIcon">
+                  {club.name === "AI Nexus"
+                    ? "🤖"
+                    : club.name ===
+                      "Coding Club"
+                    ? "💻"
+                    : "⚙️"}
+                </div>
+
+                <div className="passportClubInfo">
+                  <strong>
+                    {club.name}
+                  </strong>
+
+                  <span>
+                    {club.category}
+                  </span>
+                </div>
+
+                <div className="verifiedMini">
+                  <CheckCircle2 size={18} />
+                </div>
+              </div>
+            ))
+          )}
+        </div>
+
+        <div className="detailPanel passportPanel">
+          <div className="panelHeading">
+            <div>
+              <div className="eyebrow">
+                CONTRIBUTIONS
+              </div>
+
+              <h2>
+                How you contributed
+              </h2>
+            </div>
+
+            <Award size={22} />
+          </div>
+
+          {contributions.length === 0 ? (
+            <div className="emptyState">
+              <Award size={30} />
+
+              <p>
+                Your contributions will
+                appear here.
+              </p>
+            </div>
+          ) : (
+            contributions.map(
+              (contribution) => (
+                <div
+                  className="contributionCard"
+                  key={contribution.id}
+                >
+                  <div className="contributionIcon">
+                    <Award size={20} />
+                  </div>
+
+                  <div>
+                    <strong>
+                      {contribution.title}
+                    </strong>
+
+                    <span>
+                      {contribution.description}
+                    </span>
+                  </div>
+
+                  <CheckCircle2 size={18} />
+                </div>
+              )
+            )
+          )}
+        </div>
+      </section>
+
+      <section className="detailPanel timelinePanel">
+        <div className="panelHeading">
+          <div>
+            <div className="eyebrow">
+              EVENT REGISTRATIONS
+            </div>
+
+            <h2>
+              Events you registered for
+            </h2>
+          </div>
+
+          <CalendarDays size={22} />
+        </div>
+
+        {registeredEvents.length === 0 ? (
+          <div className="emptyState">
+            <CalendarDays size={30} />
+
+            <p>
+              You haven't registered for any
+              events yet.
+            </p>
+          </div>
+        ) : (
+          <div className="registeredEventList">
+            {registeredEvents.map((event) => {
+              const isVerified =
+                verifiedEventIds.has(
+                  event.id
+                );
+
+              return (
+                <div
+                  className="registeredEventRow"
+                  key={event.id}
+                >
+                  <div className="registeredEventIcon">
+                    {isVerified ? (
+                      <ShieldCheck size={21} />
+                    ) : (
+                      <CalendarDays size={21} />
+                    )}
+                  </div>
+
+                  <div className="registeredEventInfo">
+                    <strong>
+                      {event.title}
+                    </strong>
+
+                    <span>
+                      {event.date} ·{" "}
+                      {event.time}
+                    </span>
+
+                    <span>
+                      <MapPin size={14} />
+                      {event.venue}
+                    </span>
+                  </div>
+
+                  <div
+                    className={
+                      isVerified
+                        ? "eventStatus verifiedStatus"
+                        : "eventStatus registeredStatus"
+                    }
+                  >
+                    {isVerified ? (
+                      <>
+                        <CheckCircle2 size={16} />
+                        Verified
+                      </>
+                    ) : (
+                      <>
+                        <CalendarDays size={16} />
+                        Registered
+                      </>
+                    )}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </section>
+
+      <section className="detailPanel timelinePanel">
+        <div className="panelHeading">
+          <div>
+            <div className="eyebrow">
+              VERIFIED PARTICIPATION
+            </div>
+
+            <h2>
+              Your campus journey
+            </h2>
+          </div>
+
+          <span className="verifiedLabel">
+            <CheckCircle2 size={16} />
+
+            {verifiedEvents.length} Verified
+          </span>
+        </div>
+
+        {verifiedEvents.length === 0 ? (
+          <div className="emptyState">
+            <CalendarDays size={30} />
+
+            <p>
+              Attend your first event to start
+              your verified journey.
+            </p>
+          </div>
+        ) : (
+          <div className="timeline">
+            {verifiedEvents.map(
+              (event, index) => (
+                <div
+                  className="timelineRow"
+                  key={event.id}
+                >
+                  <div className="timelineMarker">
+                    <div className="timelineNumber">
+                      {index + 1}
+                    </div>
+                  </div>
+
+                  <div className="timelineContent">
+                    <div className="timelineTop">
+                      <div>
+                        <span className="timelineCategory">
+                          VERIFIED EVENT
+                        </span>
+
+                        <h3>
+                          {event.title}
+                        </h3>
+                      </div>
+
+                      <CheckCircle2
+                        size={22}
+                        className="timelineCheck"
+                      />
+                    </div>
+
+                    <div className="timelineMeta">
+                      <span>
+                        <CalendarDays
+                          size={15}
+                        />
+
+                        {event.date}
+                      </span>
+
+                      <span>
+                        <MapPin size={15} />
+
+                        {event.venue}
+                      </span>
+                    </div>
+
+                    <div className="attendanceVerified">
+                      <ShieldCheck size={16} />
+
+                      Attendance verified
+                    </div>
+                  </div>
+                </div>
+              )
+            )}
+          </div>
+        )}
+      </section>
+
+      <section className="passportAchievement">
+        <div className="achievementIcon">
+          <Trophy size={28} />
+        </div>
+
+        <div>
+          <span className="eyebrow">
+            CAMPUS PARTICIPATION
+          </span>
+
+          <h2>
+            Keep building your campus journey
+          </h2>
+
+          <p>
+            Join communities, participate in
+            events and contribute to campus
+            life. Your verified activities build
+            a structured record of your
+            involvement.
+          </p>
+        </div>
+
+        <ChevronRight size={24} />
+      </section>
+    </main>
+  );
+}
+
+/* =========================================================
+   ATTENDANCE VERIFICATION
+   ========================================================= */
+
+function AttendanceModal({
+  event,
+  onClose,
+  onSuccess,
+}) {
+  const [code, setCode] = useState("");
+  const [demoCode, setDemoCode] =
+    useState("");
+  const [error, setError] = useState("");
+  const [loading, setLoading] =
+    useState(false);
+
+  useEffect(() => {
+    fetch(
+      `${API}/attendance/${event.id}/code`
+    )
+      .then((res) => res.json())
+      .then((data) => {
+        if (!data.error) {
+          setDemoCode(data.code);
+        }
+      })
+      .catch(() => {
+        setError(
+          "Could not load attendance verification."
+        );
+      });
+  }, [event.id]);
+
+  const verify = async (e) => {
+    e.preventDefault();
+
+    if (!code.trim()) {
+      setError(
+        "Enter the attendance code."
+      );
+      return;
+    }
+
+    setLoading(true);
+    setError("");
+
+    try {
+      const res = await fetch(
+        `${API}/attendance/${event.id}/verify`,
+        {
+          method: "POST",
+          headers: {
+            "Content-Type":
+              "application/json",
+          },
+          body: JSON.stringify({
+            code: code.trim(),
+          }),
+        }
+      );
+
+      const data = await res.json();
+
+      if (data.error) {
+        setError(data.error);
+        setLoading(false);
+        return;
+      }
+
+      setLoading(false);
+      onSuccess();
+    } catch {
+      setError(
+        "Could not connect to backend."
+      );
+      setLoading(false);
+    }
+  };
+
+  return (
+    <div className="modalOverlay">
+      <div className="attendanceModal">
+        <button
+          className="modalClose"
+          onClick={onClose}
+        >
+          <X size={20} />
+        </button>
+
+        <div className="attendanceIcon">
+          <ShieldCheck size={30} />
+        </div>
+
+        <div className="eyebrow">
+          ATTENDANCE VERIFICATION
+        </div>
+
+        <h2>
+          Verify your attendance
+        </h2>
+
+        <p className="attendanceDescription">
+          Enter the verification code
+          provided by the event organizer to
+          confirm that you attended.
+        </p>
+
+        <div className="attendanceEvent">
+          <CalendarDays size={18} />
+
+          <div>
+            <strong>
+              {event.title}
+            </strong>
+
+            <span>
+              {event.date} · {event.venue}
+            </span>
+          </div>
+        </div>
+
+        <form onSubmit={verify}>
+          <label className="attendanceLabel">
+            Verification code
+
+            <div className="codeInput">
+              <KeyRound size={18} />
+
+              <input
+                value={code}
+                onChange={(e) => {
+                  setCode(
+                    e.target.value.toUpperCase()
+                  );
+
+                  setError("");
+                }}
+                placeholder="CL-0001"
+                maxLength={7}
+                autoFocus
+              />
+            </div>
+          </label>
+
+          {error && (
+            <div className="attendanceError">
+              {error}
+            </div>
+          )}
+
+          <button
+            className="primaryButton attendanceVerifyButton"
+            type="submit"
+            disabled={loading}
+          >
+            <CheckCircle2 size={18} />
+
+            {loading
+              ? "Verifying..."
+              : "Verify Attendance"}
+          </button>
+        </form>
+
+        {demoCode && (
+          <div className="demoCode">
+            <span>
+              Demo organizer code
+            </span>
+
+            <strong>
+              {demoCode}
+            </strong>
+          </div>
+        )}
+
+        <button
+          className="attendanceCancel"
+          onClick={onClose}
+        >
+          Cancel
+        </button>
+      </div>
+    </div>
+  );
+}
+
+/* =========================================================
+   QR CODE MODAL
+   ========================================================= */
+
+function AttendanceQrModal({
+  event,
+  onClose,
+}) {
+  const attendanceCode =
+    event.attendance_code ||
+    `CL-${String(event.id).padStart(
+      4,
+      "0"
+    )}`;
+
+  return (
+    <div className="modalOverlay">
+      <div className="attendanceModal">
+        <button
+          className="modalClose"
+          onClick={onClose}
+        >
+          <X size={20} />
+        </button>
+
+        <div className="attendanceIcon">
+          <QrCode size={30} />
+        </div>
+
+        <div className="eyebrow">
+          EVENT ATTENDANCE
+        </div>
+
+        <h2>{event.title}</h2>
+
+        <p className="attendanceDescription">
+          Display this QR code at the event.
+          Students can scan it to obtain the
+          attendance verification code.
+        </p>
+
+        <div
+          style={{
+            display: "flex",
+            justifyContent: "center",
+            alignItems: "center",
+            margin: "24px 0",
+            padding: "20px",
+            background: "#ffffff",
+            borderRadius: "18px",
+            border:
+              "1px solid #e5e7eb",
+          }}
+        >
+          <QRCodeSVG
+            value={attendanceCode}
+            size={240}
+            level="H"
+            includeMargin
+          />
+        </div>
+
+        <div className="demoCode">
+          <span>
+            Attendance code
+          </span>
+
+          <strong>
+            {attendanceCode}
+          </strong>
+        </div>
+
+        <button
+          className="primaryButton attendanceVerifyButton"
+          onClick={onClose}
+        >
+          <CheckCircle2 size={18} />
+          Done
+        </button>
+      </div>
+    </div>
+  );
+}
+
+/* =========================================================
+   CLUB ADMIN DASHBOARD
+   ========================================================= */
+
+function AdminDashboard() {
+  const [dashboard, setDashboard] =
+    useState(null);
+
+  const [members, setMembers] =
+    useState([]);
+
+  const [membersLoading, setMembersLoading] =
+    useState(false);
+
+  const [roleUpdating, setRoleUpdating] =
+    useState(null);
+
+  const [showCreateEvent, setShowCreateEvent] =
+    useState(false);
+
+  const [
+    showCreateAnnouncement,
+    setShowCreateAnnouncement,
+  ] = useState(false);
+
+  const [message, setMessage] =
+    useState("");
+
+  const [copiedCode, setCopiedCode] =
+    useState("");
+
+  const [qrEvent, setQrEvent] =
+    useState(null);
+
+  const [form, setForm] = useState({
+    title: "",
+    description: "",
+    date: "",
+    time: "",
+    venue: "",
+    capacity: 50,
+  });
+
+  const [
+    announcementForm,
+    setAnnouncementForm,
+  ] = useState({
+    title: "",
+    message: "",
+  });
+
+  const boardRoles = [
+    "General Member",
+    "President",
+    "Vice President",
+    "Secretary",
+    "Treasurer",
+    "Event Coordinator",
+    "Technical Lead",
+    "Design Lead",
+    "Marketing Lead",
+  ];
+
+  /* ---------------------------------------------------------
+     LOAD DASHBOARD
+     --------------------------------------------------------- */
+
+  const loadDashboard = () => {
+    fetch(
+      `${API}/admin/clubs/1/dashboard`
+    )
+      .then((res) => res.json())
+      .then(setDashboard)
+      .catch(() =>
+        setMessage(
+          "Could not load admin dashboard"
+        )
+      );
+  };
+
+  /* ---------------------------------------------------------
+     LOAD CLUB MEMBERS
+     --------------------------------------------------------- */
+
+  const loadMembers = () => {
+    setMembersLoading(true);
+
+    fetch(
+      `${API}/admin/clubs/1/members`
+    )
+      .then((res) => {
+        if (!res.ok) {
+          throw new Error(
+            "Members request failed"
+          );
+        }
+
+        return res.json();
+      })
+      .then((data) => {
+        setMembers(
+          data.members || []
+        );
+
+        setMembersLoading(false);
+      })
+      .catch(() => {
+        setMembers([]);
+        setMembersLoading(false);
+      });
+  };
+
+  useEffect(() => {
+    loadDashboard();
+    loadMembers();
+  }, []);
+
+  /* ---------------------------------------------------------
+     UPDATE BOARD ROLE
+     --------------------------------------------------------- */
+
+  const updateBoardRole = async (
+    member,
+    boardRole
+  ) => {
+    if (!boardRole) {
+      return;
+    }
+
+    setRoleUpdating(
+      member.user_id
+    );
+
+    setMessage("");
+
+    try {
+      const res = await fetch(
+        `${API}/admin/clubs/1/members/${member.user_id}/role?board_role=${encodeURIComponent(
+          boardRole
+        )}`,
+        {
+          method: "PUT",
+        }
+      );
+
+      const data = await res.json();
+
+      if (!res.ok || data.error) {
+        setMessage(
+          data.error ||
+            "Could not update board role"
+        );
+
+        setRoleUpdating(null);
+        return;
+      }
+
+      setMembers((current) =>
+        current.map((item) =>
+          item.user_id ===
+          member.user_id
+            ? {
+                ...item,
+                board_role:
+                  data.member
+                    ?.board_role ||
+                  boardRole,
+              }
+            : item
+        )
+      );
+
+      setMessage(
+        `${member.name}'s role was updated to ${boardRole}.`
+      );
+    } catch {
+      setMessage(
+        "Could not connect to backend"
+      );
+    } finally {
+      setRoleUpdating(null);
+    }
+  };
+
+  /* ---------------------------------------------------------
+     FORM HANDLERS
+     --------------------------------------------------------- */
+
+  const handleChange = (event) => {
+    const {
+      name,
+      value,
+    } = event.target;
+
+    setForm((current) => ({
+      ...current,
+      [name]: value,
+    }));
+  };
+
+  const handleAnnouncementChange = (
+    event
+  ) => {
+    const {
+      name,
+      value,
+    } = event.target;
+
+    setAnnouncementForm(
+      (current) => ({
+        ...current,
+        [name]: value,
+      })
+    );
+  };
+
+  /* ---------------------------------------------------------
+     CREATE EVENT
+     --------------------------------------------------------- */
+
+  const createEvent = async (event) => {
+    event.preventDefault();
+
+    try {
+      const res = await fetch(
+        `${API}/admin/events`,
+        {
+          method: "POST",
+          headers: {
+            "Content-Type":
+              "application/json",
+          },
+          body: JSON.stringify({
+            club_id: 1,
+            title: form.title,
+            description:
+              form.description,
+            date: form.date,
+            time: form.time,
+            venue: form.venue,
+            capacity: Number(
+              form.capacity
+            ),
+          }),
+        }
+      );
+
+      const data = await res.json();
+
+      if (data.error) {
+        setMessage(data.error);
+        return;
+      }
+
+      setMessage(
+        data.message ||
+          "Event created successfully!"
+      );
+
+      setForm({
+        title: "",
+        description: "",
+        date: "",
+        time: "",
+        venue: "",
+        capacity: 50,
+      });
+
+      setShowCreateEvent(false);
+      loadDashboard();
+    } catch {
+      setMessage(
+        "Could not connect to backend"
+      );
+    }
+  };
+
+  /* ---------------------------------------------------------
+     CREATE ANNOUNCEMENT
+     --------------------------------------------------------- */
+
+  const createAnnouncement = async (
+    event
+  ) => {
+    event.preventDefault();
+
+    try {
+      const res = await fetch(
+        `${API}/admin/announcements`,
+        {
+          method: "POST",
+          headers: {
+            "Content-Type":
+              "application/json",
+          },
+          body: JSON.stringify({
+            club_id: 1,
+            title:
+              announcementForm.title,
+            message:
+              announcementForm.message,
+          }),
+        }
+      );
+
+      const data = await res.json();
+
+      if (data.error) {
+        setMessage(data.error);
+        return;
+      }
+
+      setMessage(
+        data.message ||
+          "Announcement published successfully!"
+      );
+
+      setAnnouncementForm({
+        title: "",
+        message: "",
+      });
+
+      setShowCreateAnnouncement(false);
+      loadDashboard();
+    } catch {
+      setMessage(
+        "Could not connect to backend"
+      );
+    }
+  };
+
+  /* ---------------------------------------------------------
+     COPY ATTENDANCE CODE
+     --------------------------------------------------------- */
+
+  const copyAttendanceCode = async (
+    event
+  ) => {
+    const code =
+      event.attendance_code ||
+      `CL-${String(event.id).padStart(
+        4,
+        "0"
+      )}`;
+
+    try {
+      await navigator.clipboard.writeText(
+        code
+      );
+
+      setCopiedCode(code);
+      setMessage(
+        "Attendance code copied!"
+      );
+
+      setTimeout(() => {
+        setCopiedCode("");
+      }, 2000);
+    } catch {
+      setMessage(
+        "Could not copy attendance code"
+      );
+    }
+  };
+
+  if (!dashboard) {
+    return (
+      <main className="detailPage adminPage">
+        <div className="loadingState">
+          Loading club administration...
+        </div>
+      </main>
+    );
+  }
+
+  const stats = dashboard.stats;
+  const club = dashboard.club;
+  const adminEvents =
+    dashboard.events || [];
+  const announcements =
+    dashboard.announcements || [];
+
+  const leadershipMembers =
+    members.filter(
+      (member) =>
+        member.board_role &&
+        member.board_role !==
+          "General Member"
+    );
+
+  return (
+    <main className="detailPage adminPage">
+      {/* =====================================================
+          ADMIN HEADER
+          ===================================================== */}
+
+      <section className="adminHero">
+        <div className="adminIdentity">
+          <div className="adminLogo">
+            <LayoutDashboard size={30} />
+          </div>
+
+          <div>
+            <div className="eyebrow">
+              CLUB ADMINISTRATION
+            </div>
+
+            <h1>{club.name}</h1>
+
+            <p>
+              Manage your community, organize
+              events and track verified
+              participation.
+            </p>
+          </div>
+        </div>
+
+        <div
+          style={{
+            display: "flex",
+            gap: "10px",
+            flexWrap: "wrap",
+          }}
+        >
+          <button
+            className="secondaryButton large"
+            onClick={() =>
+              setShowCreateAnnouncement(
+                true
+              )
+            }
+          >
+            <Megaphone size={18} />
+            Announcement
+          </button>
+
+          <button
+            className="primaryButton large"
+            onClick={() =>
+              setShowCreateEvent(true)
+            }
+          >
+            <Plus size={18} />
+            Create Event
+          </button>
+        </div>
+      </section>
+
+      {message && (
+        <div className="adminMessage">
+          <CheckCircle2 size={18} />
+          {message}
+        </div>
+      )}
+
+      {/* =====================================================
+          ADMIN STATS
+          ===================================================== */}
+
+      <section className="adminStats">
+        <div className="adminStat">
+          <div className="adminStatIcon">
+            <Users size={22} />
+          </div>
+
+          <div>
+            <span>Members</span>
+            <strong>
+              {stats.members}
+            </strong>
+          </div>
+        </div>
+
+        <div className="adminStat">
+          <div className="adminStatIcon">
+            <CalendarDays size={22} />
+          </div>
+
+          <div>
+            <span>Events</span>
+            <strong>
+              {stats.events}
+            </strong>
+          </div>
+        </div>
+
+        <div className="adminStat">
+          <div className="adminStatIcon">
+            <BarChart3 size={22} />
+          </div>
+
+          <div>
+            <span>Registrations</span>
+            <strong>
+              {stats.registrations}
+            </strong>
+          </div>
+        </div>
+
+        <div className="adminStat">
+          <div className="adminStatIcon">
+            <ClipboardCheck size={22} />
+          </div>
+
+          <div>
+            <span>
+              Verified Attendance
+            </span>
+
+            <strong>
+              {stats.verified_attendance}
+            </strong>
+          </div>
+        </div>
+
+        <div className="adminStat">
+          <div className="adminStatIcon">
+            <Megaphone size={22} />
+          </div>
+
+          <div>
+            <span>
+              Announcements
+            </span>
+
+            <strong>
+              {stats.announcements ||
+                announcements.length}
+            </strong>
+          </div>
+        </div>
+      </section>
+
+      {/* =====================================================
+          MEMBER DIRECTORY
+          ===================================================== */}
+
+      <section className="adminEvents">
+        <div className="sectionHeader">
+          <div>
+            <div className="eyebrow">
+              COMMUNITY MEMBERS
+            </div>
+
+            <h2>
+              Member directory
+            </h2>
+
+            <p>
+              {members.length} member
+              {members.length !== 1
+                ? "s"
+                : ""}{" "}
+              in {club.name}
+            </p>
+          </div>
+
+          <button
+            className="secondaryButton"
+            onClick={loadMembers}
+            disabled={membersLoading}
+          >
+            <Users size={17} />
+
+            {membersLoading
+              ? "Refreshing..."
+              : "Refresh Members"}
+          </button>
+        </div>
+
+        {membersLoading &&
+        members.length === 0 ? (
+          <div className="loadingState">
+            Loading club members...
+          </div>
+        ) : members.length === 0 ? (
+          <div className="emptyState">
+            <Users size={32} />
+
+            <h3>
+              No members yet
+            </h3>
+
+            <p>
+              Students who join this club
+              will appear here.
+            </p>
+          </div>
+        ) : (
+          <>
+            {leadershipMembers.length >
+              0 && (
+              <div
+                style={{
+                  marginBottom: "24px",
+                  padding: "18px",
+                  borderRadius:
+                    "18px",
+                  border:
+                    "1px solid #e5e7eb",
+                  background:
+                    "linear-gradient(135deg, #fafafa, #f8fafc)",
+                }}
+              >
+                <div
+                  style={{
+                    display: "flex",
+                    alignItems:
+                      "center",
+                    gap: "10px",
+                    marginBottom:
+                      "14px",
+                  }}
+                >
+                  <Crown size={20} />
+
+                  <div>
+                    <strong>
+                      Club leadership
+                    </strong>
+
+                    <span
+                      style={{
+                        display:
+                          "block",
+                        marginTop:
+                          "2px",
+                        fontSize:
+                          "13px",
+                        color:
+                          "#64748b",
+                      }}
+                    >
+                      Current board
+                      members
+                    </span>
+                  </div>
+                </div>
+
+                <div
+                  style={{
+                    display: "flex",
+                    gap: "10px",
+                    flexWrap:
+                      "wrap",
+                  }}
+                >
+                  {leadershipMembers.map(
+                    (member) => (
+                      <div
+                        key={
+                          member.user_id
+                        }
+                        style={{
+                          display:
+                            "flex",
+                          alignItems:
+                            "center",
+                          gap: "9px",
+                          padding:
+                            "9px 12px",
+                          borderRadius:
+                            "12px",
+                          background:
+                            "#ffffff",
+                          border:
+                            "1px solid #e5e7eb",
+                        }}
+                      >
+                        <Crown size={15} />
+
+                        <span
+                          style={{
+                            fontWeight:
+                              600,
+                            fontSize:
+                              "13px",
+                          }}
+                        >
+                          {member.name}
+                        </span>
+
+                        <span
+                          style={{
+                            fontSize:
+                              "12px",
+                            color:
+                              "#64748b",
+                          }}
+                        >
+                          {
+                            member.board_role
+                          }
+                        </span>
+                      </div>
+                    )
+                  )}
+                </div>
+              </div>
+            )}
+
+            <div
+              style={{
+                display: "grid",
+                gridTemplateColumns:
+                  "repeat(auto-fit, minmax(300px, 1fr))",
+                gap: "14px",
+                marginBottom:
+                  "36px",
+              }}
+            >
+              {members.map(
+                (member) => {
+                  const currentRole =
+                    member.board_role ||
+                    "General Member";
+
+                  const isUpdating =
+                    roleUpdating ===
+                    member.user_id;
+
+                  return (
+                    <div
+                      key={
+                        member.membership_id
+                      }
+                      className="detailPanel"
+                      style={{
+                        padding:
+                          "18px",
+                        margin: 0,
+                      }}
+                    >
+                      <div
+                        style={{
+                          display:
+                            "flex",
+                          alignItems:
+                            "center",
+                          gap: "14px",
+                        }}
+                      >
+                        <div
+                          style={{
+                            width:
+                              "46px",
+                            height:
+                              "46px",
+                            minWidth:
+                              "46px",
+                            borderRadius:
+                              "50%",
+                            display:
+                              "flex",
+                            alignItems:
+                              "center",
+                            justifyContent:
+                              "center",
+                            background:
+                              "#eef2ff",
+                            fontWeight:
+                              700,
+                            fontSize:
+                              "17px",
+                          }}
+                        >
+                          {member.name
+                            ? member.name.charAt(
+                                0
+                              ).toUpperCase()
+                            : "U"}
+                        </div>
+
+                        <div
+                          style={{
+                            minWidth: 0,
+                            flex: 1,
+                          }}
+                        >
+                          <strong
+                            style={{
+                              display:
+                                "block",
+                              marginBottom:
+                                "4px",
+                            }}
+                          >
+                            {member.name}
+                          </strong>
+
+                          <span
+                            style={{
+                              display:
+                                "block",
+                              fontSize:
+                                "13px",
+                              color:
+                                "#64748b",
+                              wordBreak:
+                                "break-word",
+                            }}
+                          >
+                            {member.email}
+                          </span>
+                        </div>
+                      </div>
+
+                      <div
+                        style={{
+                          marginTop:
+                            "15px",
+                          padding:
+                            "12px",
+                          borderRadius:
+                            "12px",
+                          background:
+                            "#f8fafc",
+                          border:
+                            "1px solid #e5e7eb",
+                        }}
+                      >
+                        <div
+                          style={{
+                            display:
+                              "flex",
+                            alignItems:
+                              "center",
+                            gap: "8px",
+                            marginBottom:
+                              "8px",
+                          }}
+                        >
+                          <UserCog
+                            size={16}
+                          />
+
+                          <span
+                            style={{
+                              fontSize:
+                                "12px",
+                              fontWeight:
+                                700,
+                              textTransform:
+                                "uppercase",
+                              letterSpacing:
+                                "0.04em",
+                              color:
+                                "#64748b",
+                            }}
+                          >
+                            Board role
+                          </span>
+                        </div>
+
+                        <div
+                          style={{
+                            display:
+                              "flex",
+                            alignItems:
+                              "center",
+                            gap: "10px",
+                          }}
+                        >
+                          <select
+                            value={
+                              currentRole
+                            }
+                            disabled={
+                              isUpdating
+                            }
+                            onChange={(
+                              e
+                            ) =>
+                              updateBoardRole(
+                                member,
+                                e.target
+                                  .value
+                              )
+                            }
+                            style={{
+                              flex: 1,
+                              minWidth: 0,
+                              padding:
+                                "10px 12px",
+                              borderRadius:
+                                "10px",
+                              border:
+                                "1px solid #d1d5db",
+                              background:
+                                "#ffffff",
+                              fontSize:
+                                "14px",
+                              cursor:
+                                isUpdating
+                                  ? "wait"
+                                  : "pointer",
+                            }}
+                          >
+                            {boardRoles.map(
+                              (
+                                role
+                              ) => (
+                                <option
+                                  key={
+                                    role
+                                  }
+                                  value={
+                                    role
+                                  }
+                                >
+                                  {role}
+                                </option>
+                              )
+                            )}
+                          </select>
+
+                          {isUpdating && (
+                            <span
+                              style={{
+                                fontSize:
+                                  "12px",
+                                color:
+                                  "#64748b",
+                                whiteSpace:
+                                  "nowrap",
+                              }}
+                            >
+                              Saving...
+                            </span>
+                          )}
+                        </div>
+                      </div>
+
+                      <div
+                        style={{
+                          marginTop:
+                            "13px",
+                          paddingTop:
+                            "13px",
+                          borderTop:
+                            "1px solid #e5e7eb",
+                          display:
+                            "flex",
+                          justifyContent:
+                            "space-between",
+                          alignItems:
+                            "center",
+                        }}
+                      >
+                        <span className="category">
+                          {currentRole ===
+                          "General Member"
+                            ? "MEMBER"
+                            : "BOARD"}
+                        </span>
+
+                        <span
+                          style={{
+                            fontSize:
+                              "13px",
+                            color:
+                              "#64748b",
+                          }}
+                        >
+                          ID #
+                          {
+                            member.user_id
+                          }
+                        </span>
+                      </div>
+                    </div>
+                  );
+                }
+              )}
+            </div>
+          </>
+        )}
+      </section>
+
+      {/* =====================================================
+          ANNOUNCEMENTS
+          ===================================================== */}
+
+      <section className="adminEvents">
+        <div className="sectionHeader">
+          <div>
+            <div className="eyebrow">
+              ANNOUNCEMENTS
+            </div>
+
+            <h2>
+              Community updates
+            </h2>
+          </div>
+
+          <button
+            className="secondaryButton"
+            onClick={() =>
+              setShowCreateAnnouncement(
+                true
+              )
+            }
+          >
+            <Plus size={17} />
+            New Announcement
+          </button>
+        </div>
+
+        {announcements.length ===
+        0 ? (
+          <div className="emptyState">
+            <Megaphone size={32} />
+
+            <p>
+              No announcements published
+              yet.
+            </p>
+          </div>
+        ) : (
+          <div
+            style={{
+              display: "flex",
+              flexDirection:
+                "column",
+              gap: "12px",
+              marginBottom:
+                "36px",
+            }}
+          >
+            {announcements.map(
+              (announcement) => (
+                <div
+                  key={
+                    announcement.id
+                  }
+                  className="detailPanel"
+                  style={{
+                    padding: "18px",
+                  }}
+                >
+                  <div
+                    style={{
+                      display:
+                        "flex",
+                      gap: "14px",
+                      alignItems:
+                        "flex-start",
+                    }}
+                  >
+                    <div
+                      style={{
+                        width: "42px",
+                        height: "42px",
+                        minWidth:
+                          "42px",
+                        borderRadius:
+                          "12px",
+                        display:
+                          "flex",
+                        alignItems:
+                          "center",
+                        justifyContent:
+                          "center",
+                        background:
+                          "#eef2ff",
+                      }}
+                    >
+                      <Megaphone
+                        size={20}
+                      />
+                    </div>
+
+                    <div>
+                      <span className="category">
+                        ANNOUNCEMENT
+                      </span>
+
+                      <h3
+                        style={{
+                          margin:
+                            "5px 0",
+                        }}
+                      >
+                        {
+                          announcement.title
+                        }
+                      </h3>
+
+                      <p
+                        style={{
+                          margin: 0,
+                        }}
+                      >
+                        {
+                          announcement.message
+                        }
+                      </p>
+                    </div>
+                  </div>
+                </div>
+              )
+            )}
+          </div>
+        )}
+      </section>
+
+      {/* =====================================================
+          EVENT MANAGEMENT
+          ===================================================== */}
+
+      <section className="adminEvents">
+        <div className="sectionHeader">
+          <div>
+            <div className="eyebrow">
+              EVENT MANAGEMENT
+            </div>
+
+            <h2>Your events</h2>
+          </div>
+
+          <button
+            className="secondaryButton"
+            onClick={() =>
+              setShowCreateEvent(true)
+            }
+          >
+            <Plus size={17} />
+            New Event
+          </button>
+        </div>
+
+        <div className="adminEventList">
+          {adminEvents.length ===
+          0 ? (
+            <div className="emptyState">
+              <CalendarDays size={32} />
+
+              <p>
+                No events created yet.
+              </p>
+            </div>
+          ) : (
+            adminEvents.map(
+              (event) => {
+                const percentage =
+                  event.capacity > 0
+                    ? Math.min(
+                        100,
+                        Math.round(
+                          (event.registered /
+                            event.capacity) *
+                            100
+                        )
+                      )
+                    : 0;
+
+                const attendanceCode =
+                  event.attendance_code ||
+                  `CL-${String(
+                    event.id
+                  ).padStart(
+                    4,
+                    "0"
+                  )}`;
+
+                return (
+                  <div
+                    className="adminEvent"
+                    key={event.id}
+                  >
+                    <div className="adminEventDate">
+                      <CalendarDays
+                        size={20}
+                      />
+
+                      <strong>
+                        {event.date?.split(
+                          " "
+                        )[0]}
+                      </strong>
+
+                      <span>
+                        {event.date?.split(
+                          " "
+                        )[1]}
+                      </span>
+                    </div>
+
+                    <div className="adminEventMain">
+                      <div>
+                        <span className="category">
+                          EVENT
+                        </span>
+
+                        <h3>
+                          {event.title}
+                        </h3>
+
+                        <p>
+                          {
+                            event.description
+                          }
+                        </p>
+
+                        <div className="eventMeta">
+                          <span>
+                            <MapPin
+                              size={
+                                15
+                              }
+                            />
+
+                            {
+                              event.venue
+                            }
+                          </span>
+
+                          <span>
+                            <Clock
+                              size={
+                                15
+                              }
+                            />
+
+                            {
+                              event.time
+                            }
+                          </span>
+                        </div>
+                      </div>
+
+                      <div className="registrationMeter">
+                        <div className="registrationTop">
+                          <span>
+                            Registrations
+                          </span>
+
+                          <strong>
+                            {
+                              event.registered
+                            }
+                            /
+                            {
+                              event.capacity
+                            }
+                          </strong>
+                        </div>
+
+                        <div className="meter">
+                          <div
+                            className="meterFill"
+                            style={{
+                              width: `${percentage}%`,
+                            }}
+                          />
+                        </div>
+
+                        <small>
+                          {percentage}%
+                          capacity
+                        </small>
+                      </div>
+                    </div>
+
+                    <div className="attendanceCodeBox">
+                      <div className="attendanceCodeInfo">
+                        <span>
+                          ATTENDANCE CODE
+                        </span>
+
+                        <strong>
+                          {
+                            attendanceCode
+                          }
+                        </strong>
+                      </div>
+
+                      <div
+                        style={{
+                          display:
+                            "flex",
+                          gap: "8px",
+                          flexWrap:
+                            "wrap",
+                        }}
+                      >
+                        <button
+                          className="secondaryButton"
+                          onClick={() =>
+                            copyAttendanceCode(
+                              event
+                            )
+                          }
+                        >
+                          {copiedCode ===
+                          attendanceCode ? (
+                            <>
+                              <Check
+                                size={
+                                  16
+                                }
+                              />
+
+                              Copied
+                            </>
+                          ) : (
+                            <>
+                              <Copy
+                                size={
+                                  16
+                                }
+                              />
+
+                              Copy Code
+                            </>
+                          )}
+                        </button>
+
+                        <button
+                          className="primaryButton"
+                          onClick={() =>
+                            setQrEvent(
+                              event
+                            )
+                          }
+                        >
+                          <QrCode
+                            size={
+                              16
+                            }
+                          />
+
+                          Show QR
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                );
+              }
+            )
+          )}
+        </div>
+      </section>
+
+      {/* =====================================================
+          CREATE EVENT MODAL
+          ===================================================== */}
+
+      {showCreateEvent && (
+        <div className="modalOverlay">
+          <div className="createModal">
+            <div className="modalHeader">
+              <div>
+                <div className="eyebrow">
+                  CLUB ADMIN
+                </div>
+
+                <h2>
+                  Create a new event
+                </h2>
+              </div>
+
+              <button
+                className="modalClose"
+                onClick={() =>
+                  setShowCreateEvent(
+                    false
+                  )
+                }
+              >
+                <X size={20} />
+              </button>
+            </div>
+
+            <form
+              onSubmit={createEvent}
+            >
+              <label>
+                Event title
+
+                <input
+                  name="title"
+                  value={form.title}
+                  onChange={
+                    handleChange
+                  }
+                  placeholder="e.g. AI Workshop"
+                  required
+                />
+              </label>
+
+              <label>
+                Description
+
+                <textarea
+                  name="description"
+                  value={
+                    form.description
+                  }
+                  onChange={
+                    handleChange
+                  }
+                  placeholder="Tell students what this event is about..."
+                  rows="4"
+                  required
+                />
+              </label>
+
+              <div className="formRow">
+                <label>
+                  Date
+
+                  <input
+                    name="date"
+                    value={form.date}
+                    onChange={
+                      handleChange
+                    }
+                    placeholder="04 Oct 2026"
+                    required
+                  />
+                </label>
+
+                <label>
+                  Time
+
+                  <input
+                    name="time"
+                    value={form.time}
+                    onChange={
+                      handleChange
+                    }
+                    placeholder="10:00 AM"
+                    required
+                  />
+                </label>
+              </div>
+
+              <div className="formRow">
+                <label>
+                  Venue
+
+                  <input
+                    name="venue"
+                    value={form.venue}
+                    onChange={
+                      handleChange
+                    }
+                    placeholder="Innovation Lab"
+                    required
+                  />
+                </label>
+
+                <label>
+                  Capacity
+
+                  <input
+                    type="number"
+                    name="capacity"
+                    value={
+                      form.capacity
+                    }
+                    onChange={
+                      handleChange
+                    }
+                    min="1"
+                    required
+                  />
+                </label>
+              </div>
+
+              <div className="modalActions">
+                <button
+                  type="button"
+                  className="secondaryButton"
+                  onClick={() =>
+                    setShowCreateEvent(
+                      false
+                    )
+                  }
+                >
+                  Cancel
+                </button>
+
+                <button
+                  type="submit"
+                  className="primaryButton"
+                >
+                  <Plus size={17} />
+                  Create Event
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* =====================================================
+          CREATE ANNOUNCEMENT MODAL
+          ===================================================== */}
+
+      {showCreateAnnouncement && (
+        <div className="modalOverlay">
+          <div className="createModal">
+            <div className="modalHeader">
+              <div>
+                <div className="eyebrow">
+                  CLUB ADMIN
+                </div>
+
+                <h2>
+                  Publish announcement
+                </h2>
+              </div>
+
+              <button
+                className="modalClose"
+                onClick={() =>
+                  setShowCreateAnnouncement(
+                    false
+                  )
+                }
+              >
+                <X size={20} />
+              </button>
+            </div>
+
+            <form
+              onSubmit={
+                createAnnouncement
+              }
+            >
+              <label>
+                Announcement title
+
+                <input
+                  name="title"
+                  value={
+                    announcementForm.title
+                  }
+                  onChange={
+                    handleAnnouncementChange
+                  }
+                  placeholder="e.g. AI Hackathon Reminder"
+                  required
+                />
+              </label>
+
+              <label>
+                Message
+
+                <textarea
+                  name="message"
+                  value={
+                    announcementForm.message
+                  }
+                  onChange={
+                    handleAnnouncementChange
+                  }
+                  placeholder="Write the announcement students should see..."
+                  rows="5"
+                  required
+                />
+              </label>
+
+              <div
+                style={{
+                  display:
+                    "flex",
+                  gap: "10px",
+                  alignItems:
+                    "center",
+                  padding:
+                    "12px 14px",
+                  borderRadius:
+                    "12px",
+                  background:
+                    "#f8fafc",
+                  marginBottom:
+                    "18px",
+                  fontSize:
+                    "13px",
+                }}
+              >
+                <Bell size={17} />
+
+                <span>
+                  Club members will
+                  receive this
+                  announcement as a
+                  notification.
+                </span>
+              </div>
+
+              <div className="modalActions">
+                <button
+                  type="button"
+                  className="secondaryButton"
+                  onClick={() =>
+                    setShowCreateAnnouncement(
+                      false
+                    )
+                  }
+                >
+                  Cancel
+                </button>
+
+                <button
+                  type="submit"
+                  className="primaryButton"
+                >
+                  <Megaphone
+                    size={17}
+                  />
+
+                  Publish Announcement
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* =====================================================
+          QR MODAL
+          ===================================================== */}
+
+      {qrEvent && (
+        <AttendanceQrModal
+          event={qrEvent}
+          onClose={() =>
+            setQrEvent(null)
+          }
+        />
+      )}
+    </main>
+  );
+}
+
+export default App;
